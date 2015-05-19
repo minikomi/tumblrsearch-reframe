@@ -23,7 +23,7 @@
     :builds [{:id "dev"
               :source-paths ["src"]
 
-              :figwheel {}
+              :figwheel {:on-jsload "tumblr-reframe.core/run"}
 
               :compiler {:main tumblr-reframe.core
                          :asset-path "js/compiled/out"

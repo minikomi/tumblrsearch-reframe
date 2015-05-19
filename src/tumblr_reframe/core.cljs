@@ -17,9 +17,10 @@
 ; ------------------------------------------------------------------------------
 
 (def initial-state
-  {:mode        :search
-   :search-term ""
-   :entries     []
+  {:mode         :search
+   :search-term  ""
+   :entries      []
+   :before       0
    :page         0
    :window-width (.. js/window -innerWidth)
    :error-string ""
@@ -64,32 +65,62 @@
               )))
 
 (register-handler 
-  :search
-  (fn [db [_ search-term before]]
-    (perform-search search-term before)
+  :new-search
+  (fn [db [_ search-term]]
+    (perform-search search-term 0)
     (assoc db :search-term search-term
               :mode        :loading
               :entries     []
               :page        0
+              :before      0
               )))
+
+(register-handler 
+  :continue-search
+  (fn [db [_]]
+    (perform-search (:search-term db) (:before db))
+    (assoc db :mode :loading)))
 
 (register-handler 
   :search-result
   (fn [db [_ new-entries]]
-    (-> db
-        (update-in [:entries] into new-entries)
-        (update-in [:page] inc)
-        (assoc :mode :loaded))))
+    (if (not-empty new-entries)
+      (let [sorted-entries (sort-by :timestamp #(compare %2 %1) new-entries)]
+       (-> db
+          (update-in [:entries] into sorted-entries)
+          (assoc :before (-> sorted-entries last :timestamp))
+          (update-in [:page] inc)
+          (assoc :mode :loaded)
+          ))
+      (-> db (assoc :mode :finished))) 
+    ))
 
 (register-handler 
-  :resized
+  :resize
   (fn [db [_]]
     (assoc db :window-width 
            (.. js/window -innerWidth)
            )))
 
+(register-handler 
+  :scroll
+  (fn [db [_]]
+    (when
+      (and (= :loaded (:mode db))
+           (> 100 (-  (.. js/document -documentElement -scrollHeight) 
+                      (.. js/window -scrollY) 
+                      (.. js/window -innerHeight))))
+      (dispatch [:continue-search]))
+    db))
+
 ; subscriptions
 ; ------------------------------------------------------------------------------
+
+(register-sub
+  :mode 
+  (fn 
+    [db _]
+    (reaction (:mode @db))))
 
 (register-sub
   :search-term
@@ -114,18 +145,26 @@
 
 (defn input-form 
   []
-  (let [current-search (subscribe [:search-term])
-        current-val (atom @current-search)] 
+  (let [current-search   (subscribe [:search-term])
+        current-val      (atom @current-search)
+        maybe-new-search #(when (and (not-empty @current-val)
+                                     (not= @current-val @current-search))
+                            (dispatch [:new-search @current-val]))]
     (fn []
       [:form {:on-submit (fn [ev]
                            (.preventDefault ev)
-                           (dispatch [:search @current-val 0]))}
+                           (maybe-new-search))}
+       ; text-input
        [:input {:type "text"
                 :value @current-val
                 :on-change #(reset! current-val (.. % -target -value))}]
-       [:input {:type "button"
-                :value "submit"
-                :on-click #(dispatch [:search @current-val 0])}]
+
+       ; submit-button
+       (when (and (not-empty @current-val)
+                  (not= @current-val @current-search))
+         [:input {:type "button"
+                :value "new search"
+                :on-click maybe-new-search}])
        ])))
 
 (defn- build-offset-grid [current-items window-width]
@@ -158,7 +197,6 @@
                             :y offset-y
                             :w col-w
                             }]
-              (println offsets)
               (recur
                 (rest items)
                 (conj coll new-item)
@@ -166,17 +204,11 @@
                 new-offsets))))))))
 
 (defn grid-entry [{:keys [title photo post-url x y w]}]
-  [:li {:style {:list-style "none"
-                :position :absolute
+  [:li {:style {
                 :left     (str x "px")
                 :top      (str y "px") 
                 :width    (str w "px")}}
-   [:img 
-    {:src (photo :url)
-     :style {:width (str w "px")
-             :display "block"
-             }
-     }]])
+   [:img {:src (photo :url) :style {:width   "100%" :display "block"}}]])
 
 (defn entry-list 
   []
@@ -184,27 +216,43 @@
         window-width (subscribe [:window-width])]
     (when (not-empty @entries)
       (let [grid-entries (build-offset-grid @entries @window-width)]
-        (println (pr-str grid-entries))
-         (into [:ul {:style {:margin-top "50px" :position "relative"}}]
+         (into [:ul {:id "gridlist"}]
                (mapv grid-entry grid-entries))))))
+
+(defn header 
+  []
+  (let [search-term (subscribe [:search-term])
+        mode (subscribe [:mode])]
+    [:div {:id "header"}
+     (if (empty? @search-term)
+       [:h1 "Enter Search:"]
+       [:h1 "Current Search: " @search-term])
+     [input-form]
+     (case @mode
+       :loading [:h2 "loading"]
+       :finished [:h2 "Found All Entries."]
+       "")]))
 
 (defn application 
   []
-  (let [search-term (subscribe [:search-term])]
-    (fn []
-      [:div
-       [:h1 @search-term]
-       [input-form]
-       [entry-list]
-       ])))
+  (fn []
+    [:div [header] [entry-list]]))
 
 ; run
 ; ------------------------------------------------------------------------------
 
+(defonce intialize 
+  (do
+    (.addEventListener
+      js/window "resize" #(dispatch [:resize]))
+    (.addEventListener
+      js/window "scroll" #(dispatch [:scroll]))
+    (dispatch-sync [:initialize]))
+  
+  )
+
 (defn ^:export run
   []
-  (dispatch-sync [:initialize])
-  (.addEventListener
-    js/window "resize" #(dispatch [:resized]))
   (reagent/render [application]
                   (js/document.getElementById "app")))
+
