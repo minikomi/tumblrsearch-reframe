@@ -46,7 +46,7 @@
                 (filter (fn [item] (= (:type item) "photo"))
                         (js->clj (.. v -response) :keywordize-keys true))])
              ; resp error handler ---
-             (dispatch [:error (sTr "API Error: " (js->clj (.. v -meta -msg) :kewordize-keys true))])))
+             (dispatch [:error (str "API Error: " (js->clj (.. v -meta -msg) :kewordize-keys true))])))
          ; req error handler --------
          #(dispatch 
             [:error (str "Network Error")])
