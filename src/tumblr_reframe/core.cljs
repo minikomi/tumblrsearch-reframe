@@ -171,8 +171,7 @@
 
 (defn build-offset-grid [current-items window-width]
   (let [col-n (inc (Math/floor (/ window-width image-width)))
-        col-w (/ window-width col-n)
-        ]
+        col-w (/ window-width col-n)]
     (loop [items   current-items
            coll    []
            idx     0
