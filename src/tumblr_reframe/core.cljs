@@ -29,22 +29,25 @@
 (def image-width 500)
 
 (defn perform-search [search-term before]
+  ; goog.Jsonp.send [uri] [query params] [resp handler] [error handler]
   (.send (Jsonp. (Uri. "http://api.tumblr.com/v2/tagged")) 
+         ; query parameters ---------
          (clj->js 
            {:tag     search-term
             :before  before
             :api_key "pekKZHs4hKvshK1NRyXlawVhO203uYg0MMfGj5Tq8ts6M1Wq9Z"})
-         ; response handler
+         ; response handler ---------
          (fn [v]
            (case (.. v -meta -status)
              200 
+             ; resp ok handler ------
              (dispatch
                [:search-result 
                 (filter (fn [item] (= (:type item) "photo"))
                         (js->clj (.. v -response) :keywordize-keys true))])
-             ; error from api
-             (dispatch [:error (str "API Error: " (js->clj (.. v -meta -msg) :kewordize-keys true))])))
-         ; error handler
+             ; resp error handler ---
+             (dispatch [:error (sTr "API Error: " (js->clj (.. v -meta -msg) :kewordize-keys true))])))
+         ; req error handler --------
          #(dispatch 
             [:error (str "Network Error")])
          ))
@@ -92,8 +95,7 @@
           (update-in [:page] inc)
           (assoc :mode :loaded)
           ))
-      (-> db (assoc :mode :finished))) 
-    ))
+      (-> db (assoc :mode :finished)))))
 
 (register-handler 
   :resize
@@ -163,11 +165,11 @@
        (when (and (not-empty @current-val)
                   (not= @current-val @current-search))
          [:input {:type "button"
-                :value "new search"
-                :on-click maybe-new-search}])
-       ])))
+                  :value "new search"
+                  :on-click maybe-new-search}])]
+      )))
 
-(defn- build-offset-grid [current-items window-width]
+(defn build-offset-grid [current-items window-width]
   (let [col-n (inc (Math/floor (/ window-width image-width)))
         col-w (/ window-width col-n)
         ]
@@ -203,14 +205,14 @@
                 (inc idx)
                 new-offsets))))))))
 
-(defn grid-entry [{:keys [title photo post-url x y w]}]
-  [:li {:style {
-                :left     (str x "px")
+(defn grid-entry 
+  [{:keys [title photo post-url x y w]}]
+  [:li {:style {:left     (str x "px")
                 :top      (str y "px") 
                 :width    (str w "px")}}
    [:img {:src (photo :url)}]])
 
-(defn entry-list 
+(defn entry-list
   []
   (let [entries (subscribe [:entries])
         window-width (subscribe [:window-width])]
@@ -219,7 +221,7 @@
          (into [:ul {:id "gridlist"}]
                (mapv grid-entry grid-entries))))))
 
-(defn header 
+(defn header
   []
   (let [search-term (subscribe [:search-term])
         mode (subscribe [:mode])]
@@ -235,8 +237,7 @@
 
 (defn application 
   []
-  (fn []
-    [:div [header] [entry-list]]))
+  (fn [] [:div [header] [entry-list]]))
 
 ; run
 ; ------------------------------------------------------------------------------
