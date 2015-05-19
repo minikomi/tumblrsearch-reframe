@@ -208,7 +208,7 @@
                 :left     (str x "px")
                 :top      (str y "px") 
                 :width    (str w "px")}}
-   [:img {:src (photo :url) :style {:width   "100%" :display "block"}}]])
+   [:img {:src (photo :url)}]])
 
 (defn entry-list 
   []
@@ -241,15 +241,13 @@
 ; run
 ; ------------------------------------------------------------------------------
 
-(defonce intialize 
+(defonce intialize
   (do
     (.addEventListener
       js/window "resize" #(dispatch [:resize]))
     (.addEventListener
       js/window "scroll" #(dispatch [:scroll]))
-    (dispatch-sync [:initialize]))
-  
-  )
+    (dispatch-sync [:initialize])))
 
 (defn ^:export run
   []
