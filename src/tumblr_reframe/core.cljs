@@ -26,7 +26,7 @@
    :error-string ""
    })
 
-(def image-width 500)
+(def base-row-height 320)
 
 (defn perform-search [search-term before]
   ; goog.Jsonp.send [uri] [query params] [resp handler] [error handler]
@@ -84,11 +84,29 @@
     (perform-search (:search-term db) (:before db))
     (assoc db :mode :loading)))
 
+(defn normalize-entry [entry]
+  (let 
+    [timestamp (:timestamp entry)
+     {img-h   :height
+      img-w   :width
+      img-url :url
+      } (-> entry :photos first :alt_sizes second)
+      adj-w     (* img-w (/ base-row-height img-h))
+      title (clojure.string/replace (:slug entry)  #"-"  " ")
+      ]
+    {:w adj-w
+     :h base-row-height
+     :url img-url
+     :title title
+     :timestamp timestamp
+     }))
+
 (register-handler 
   :search-result
   (fn [db [_ new-entries]]
     (if (not-empty new-entries)
-      (let [sorted-entries (sort-by :timestamp #(compare %2 %1) new-entries)]
+      (let [sorted-raw-entries (sort-by :timestamp #(compare %2 %1) new-entries)
+            sorted-entries (map normalize-entry sorted-raw-entries)]
        (-> db
           (update-in [:entries] into sorted-entries)
           (assoc :before (-> sorted-entries last :timestamp))
@@ -169,47 +187,50 @@
                   :on-click maybe-new-search}])]
       )))
 
-(defn build-offset-grid [current-items window-width]
-  (let [col-n (inc (Math/floor (/ window-width image-width)))
-        col-w (/ window-width col-n)]
-    (loop [items   current-items
-           coll    []
-           idx     0
-           offsets (zipmap (range col-n) (repeat 0))]
-      (if (empty? items) coll
-        (let [item  (first items)
-              title (clojure.string/replace (:slug item)  #"-"  " ") 
-              photo (-> item :photos first :alt_sizes second)]
-          (if (or (nil? (:height photo)) (nil? (:width photo)))
-            ; nil size found - drop the image
-            (recur (rest items) coll idx offsets)
-            ; image ok - place image in grid
-            (let [offset-n    (mod idx col-n)
-                  offset      (apply min-key second offsets)
-                  offset-x    (* col-w (first offset))
-                  offset-y    (second offset)
-                  new-height  (int (* (:height photo) (/ col-w (:width photo))))
-                  new-offsets (update-in offsets [(first offset)] + new-height)
-                  new-item {:index idx
-                            :title title
-                            :photo photo
-                            :post-url (:post_url item)
-                            :x offset-x
-                            :y offset-y
-                            :w col-w
-                            }]
-              (recur
-                (rest items)
-                (conj coll new-item)
-                (inc idx)
-                new-offsets))))))))
+(defn adjust-row [row adjust-ratio]
+
+  (map (fn [img] 
+         (-> img
+             (update-in [:h] #(* % adjust-ratio))
+             (update-in [:w] #(* % adjust-ratio))
+             (update-in [:x] #(* % adjust-ratio))
+             )) row))
+
+(defn build-offset-grid [current-entries window-width]
+  (loop [entries   current-entries
+         row      []
+         row-w    0
+         v-offset 0
+         acc      []]
+    (if (empty? entries) (into acc (adjust-row row 1))
+      (let [{img-w :w img-h :h :as entry} (first entries)]
+        (if (or (nil? img-w) (nil? img-h))
+          ; nil size found - drop the image
+          (recur (rest entries) row row-w v-offset acc)
+          ; image ok - place image in grid
+          (let [new-row-w (+ row-w img-w)]
+            (if (>= new-row-w window-width)
+              ; went over the width of the window
+              ; - new row
+              ; - adjust size of images to fit justified
+              (let [adjust-ratio (/ window-width row-w) 
+                    new-v-offset (+ v-offset (* adjust-ratio base-row-height))
+                    adjusted-row (adjust-row row adjust-ratio)
+                    new-acc      (into acc adjusted-row)]
+                (recur (rest entries) [] 0 new-v-offset new-acc))
+              (let [new-entry (assoc entry :x row-w :y v-offset)
+                    new-row  (conj row new-entry)]
+                (recur (rest entries) new-row new-row-w v-offset acc)))))))))
 
 (defn grid-entry 
-  [{:keys [title photo post-url x y w]}]
+  [{:keys [x y w h url title]}]
   [:li {:style {:left     (str x "px")
                 :top      (str y "px") 
                 :width    (str w "px")}}
-   [:img {:src (photo :url)}]])
+   [:img {:src url 
+          :alt title 
+          :width (str w "px") 
+          :height (str h "px")}]])
 
 (defn entry-list
   []
