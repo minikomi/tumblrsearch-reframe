@@ -91,7 +91,7 @@
       img-w   :width
       img-url :url
       } (-> entry :photos first :alt_sizes second)
-      adj-w     (* img-w (/ base-row-height img-h))
+      adj-w (Math/round (* img-w (/ base-row-height img-h)))
       title (clojure.string/replace (:slug entry)  #"-"  " ")
       ]
     {:w adj-w
@@ -188,12 +188,11 @@
       )))
 
 (defn adjust-row [row adjust-ratio]
-
   (map (fn [img] 
          (-> img
-             (update-in [:h] #(* % adjust-ratio))
-             (update-in [:w] #(* % adjust-ratio))
-             (update-in [:x] #(* % adjust-ratio))
+             (update-in [:h] #(Math/round (* % adjust-ratio)))
+             (update-in [:w] #(Math/round (* % adjust-ratio)))
+             (update-in [:x] #(Math/round (* % adjust-ratio)))
              )) row))
 
 (defn build-offset-grid [current-entries window-width]
@@ -214,7 +213,7 @@
               ; - new row
               ; - adjust size of images to fit justified
               (let [adjust-ratio (/ window-width row-w) 
-                    new-v-offset (+ v-offset (* adjust-ratio base-row-height))
+                    new-v-offset (Math/round (+ v-offset (* adjust-ratio base-row-height)))
                     adjusted-row (adjust-row row adjust-ratio)
                     new-acc      (into acc adjusted-row)]
                 (recur (rest entries) [] 0 new-v-offset new-acc))
