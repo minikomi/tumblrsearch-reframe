@@ -10,6 +10,7 @@
                  ; app specific
                  [re-frame "0.4.0"]
                  [reagent "0.5.0"]
+                 [secretary "1.2.3"]
                  ]
 
   :plugins [[lein-cljsbuild "1.0.5"]

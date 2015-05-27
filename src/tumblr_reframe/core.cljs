@@ -1,5 +1,7 @@
 (ns ^:figwheel-always tumblr-reframe.core
-  (:require-macros [reagent.ratom :refer [reaction]])   
+  (:require-macros [reagent.ratom :refer [reaction]]
+                   [secretary.core :refer [defroute]  ]
+                   )
   (:require
     [reagent.core :as reagent :refer [atom]]
     [re-frame.core :refer [register-handler
@@ -7,9 +9,16 @@
                            register-sub
                            dispatch
                            dispatch-sync
-                           subscribe]])
+                           subscribe]]
+    [secretary.core :as secretary]
+    [goog.events :as events]
+    [goog.history.EventType :as EventType]
+
+    )
   (:import [goog.net Jsonp]
-           [goog Uri]))
+           [goog Uri]
+           [goog History]
+           ))
 
 (enable-console-print!)
 
@@ -19,6 +28,7 @@
 (def initial-state
   {:mode         :search
    :search-term  ""
+   :current-input ""
    :entries      []
    :before       0
    :page         0
@@ -52,6 +62,18 @@
             [:error (str "Network Error")])
          ))
 
+; routing
+; ------------------------------------------------------------------------------
+
+(defonce h (History.))
+
+(defroute reset "/" []
+  (dispatch [:initialize]))
+
+(defroute search-tag "/tag/:tag" [tag]
+  (dispatch [:update-input tag])
+  (dispatch [:new-search]))
+
 ; handlers
 ; ------------------------------------------------------------------------------
 
@@ -68,10 +90,15 @@
               )))
 
 (register-handler 
+  :update-input
+  (fn [db [_ current-input]]
+    (assoc db :current-input current-input)))
+
+(register-handler 
   :new-search
-  (fn [db [_ search-term]]
-    (perform-search search-term 0)
-    (assoc db :search-term search-term
+  (fn [db [_]]
+    (perform-search (:current-input db) 0)
+    (assoc db :search-term (:current-input db)
               :mode        :loading
               :entries     []
               :page        0
@@ -197,6 +224,12 @@
     (reaction (:search-term @db))))
 
 (register-sub
+  :current-input
+  (fn 
+    [db _]
+    (reaction (:current-input @db))))
+
+(register-sub
   :entries
   (fn 
     [db _]
@@ -214,25 +247,25 @@
 (defn input-form 
   []
   (let [current-search   (subscribe [:search-term])
-        current-val      (atom @current-search)
-        maybe-new-search #(when (and (not-empty @current-val)
-                                     (not= @current-val @current-search))
-                            (dispatch [:new-search @current-val]))]
+        current-input    (subscribe [:current-input])
+        maybe-new-search #(when (and (not-empty @current-input)
+                                     (not= @current-input @current-search))
+                            (.setToken h (str "/tag/" @current-input)))]
     (fn []
       [:form {:on-submit (fn [ev]
                            (.preventDefault ev)
                            (maybe-new-search))}
        ; text-input
        [:input {:type "text"
-                :value @current-val
-                :on-change #(reset! current-val (.. % -target -value))}]
+                :default-value @current-search
+                :value @current-input
+                :on-change #(dispatch-sync [:update-input (.. % -target -value)])}]
 
        ; submit-button
-       (when (and (not-empty @current-val)
-                  (not= @current-val @current-search))
-         [:input {:type "button"
-                  :value "new search"
-                  :on-click maybe-new-search}])]
+       [:input {:type "button"
+                :value "new search"
+                :disabled (empty? @current-input)
+                :on-click maybe-new-search}]]
       )))
 
 
@@ -281,10 +314,13 @@
       js/window "resize" #(dispatch [:resize]))
     (.addEventListener
       js/window "scroll" #(dispatch [:scroll]))
-    (dispatch-sync [:initialize])))
+    (dispatch-sync [:initialize])
+    (secretary/set-config! :prefix "#")
+    (goog.events/listen h EventType/NAVIGATE #(secretary/dispatch! (.-token %)))
+    (doto h (.setEnabled true))
+    ))
 
 (defn ^:export run
   []
   (reagent/render [application]
                   (js/document.getElementById "app")))
-
