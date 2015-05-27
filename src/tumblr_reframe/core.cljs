@@ -26,7 +26,7 @@
    :error-string ""
    })
 
-(def base-row-height 320)
+(def base-row-height 340)
 
 (defn perform-search [search-term before]
   ; goog.Jsonp.send [uri] [query params] [resp handler] [error handler]
@@ -78,6 +78,12 @@
               :before      0
               )))
 
+(register-handler :dump
+  (fn [db _]
+    (println db)
+    db
+    ))
+
 (register-handler 
   :continue-search
   (fn [db [_]]
@@ -96,19 +102,58 @@
       ]
     {:w adj-w
      :h base-row-height
+     :orig-w adj-w
+     :orig-h base-row-height
      :url img-url
      :title title
      :timestamp timestamp
      }))
 
+(defn adjust-row [row adjust-ratio]
+  (map (fn [img] 
+         (-> img
+             (assoc :w (Math/ceil (* (:orig-w img) adjust-ratio))) 
+             (assoc :h (Math/ceil (* (:orig-h img) adjust-ratio)))
+             (update-in [:x] #(Math/ceil (* % adjust-ratio)))
+             )) row))
+
+(defn build-offset-grid [current-entries window-width]
+  (loop [entries  current-entries
+         row      []
+         row-w    0
+         v-offset 0
+         acc      []]
+    (if (empty? entries) (into acc row)
+      (let [{img-w :orig-w img-h :orig-h :as entry} (first entries)]
+        (if (or (nil? img-w) (nil? img-h))
+          ; nil size found - drop the image
+          (recur (rest entries) row row-w v-offset acc)
+          ; image ok - place image in grid
+          (let [new-entry (assoc entry :x row-w :y v-offset)
+                new-row  (conj row new-entry) 
+                new-row-w (+ row-w img-w)]
+            (if (>= new-row-w window-width)
+              ; went over the width of the window
+              ; - new row
+              ; - adjust size of images to fit justified
+              (let [adjust-ratio (/ window-width new-row-w) 
+                    new-v-offset (Math/round (+ v-offset (* adjust-ratio base-row-height)))
+                    adjusted-row (adjust-row new-row adjust-ratio)
+                    new-acc      (into acc adjusted-row)]
+                (recur (rest entries) [] 0 new-v-offset new-acc))
+              (recur (rest entries) new-row new-row-w v-offset acc))))))))
+
 (register-handler 
   :search-result
   (fn [db [_ new-entries]]
     (if (not-empty new-entries)
-      (let [sorted-raw-entries (sort-by :timestamp #(compare %2 %1) new-entries)
-            sorted-entries (map normalize-entry sorted-raw-entries)]
+      (let [sorted-raw-entries (filter #(<= 2 (count (-> % :photos first :alt_sizes)))
+                                       (sort-by :timestamp #(compare %2 %1) new-entries))
+            sorted-entries (into (:entries db) (map normalize-entry sorted-raw-entries))
+            new-entries (build-offset-grid sorted-entries (:window-width db))
+            ]
        (-> db
-          (update-in [:entries] into sorted-entries)
+          (assoc :entries new-entries)
           (assoc :before (-> sorted-entries last :timestamp))
           (update-in [:page] inc)
           (assoc :mode :loaded)
@@ -118,9 +163,12 @@
 (register-handler 
   :resize
   (fn [db [_]]
-    (assoc db :window-width 
-           (.. js/window -innerWidth)
-           )))
+    (let [new-width (.. js/window -innerWidth)
+          new-entries (build-offset-grid (:entries db) new-width)]
+      (println (count (:entries db)) (count new-entries))
+      (assoc db :window-width new-width
+                :entries new-entries
+             ))))
 
 (register-handler 
   :scroll
@@ -187,39 +235,7 @@
                   :on-click maybe-new-search}])]
       )))
 
-(defn adjust-row [row adjust-ratio]
-  (map (fn [img] 
-         (-> img
-             (update-in [:h] #(Math/round (* % adjust-ratio)))
-             (update-in [:w] #(Math/round (* % adjust-ratio)))
-             (update-in [:x] #(Math/round (* % adjust-ratio)))
-             )) row))
 
-(defn build-offset-grid [current-entries window-width]
-  (loop [entries   current-entries
-         row      []
-         row-w    0
-         v-offset 0
-         acc      []]
-    (if (empty? entries) (into acc (adjust-row row 1))
-      (let [{img-w :w img-h :h :as entry} (first entries)]
-        (if (or (nil? img-w) (nil? img-h))
-          ; nil size found - drop the image
-          (recur (rest entries) row row-w v-offset acc)
-          ; image ok - place image in grid
-          (let [new-row-w (+ row-w img-w)]
-            (if (>= new-row-w window-width)
-              ; went over the width of the window
-              ; - new row
-              ; - adjust size of images to fit justified
-              (let [adjust-ratio (/ window-width row-w) 
-                    new-v-offset (Math/round (+ v-offset (* adjust-ratio base-row-height)))
-                    adjusted-row (adjust-row row adjust-ratio)
-                    new-acc      (into acc adjusted-row)]
-                (recur (rest entries) [] 0 new-v-offset new-acc))
-              (let [new-entry (assoc entry :x row-w :y v-offset)
-                    new-row  (conj row new-entry)]
-                (recur (rest entries) new-row new-row-w v-offset acc)))))))))
 
 (defn grid-entry 
   [{:keys [x y w h url title]}]
@@ -233,12 +249,10 @@
 
 (defn entry-list
   []
-  (let [entries (subscribe [:entries])
-        window-width (subscribe [:window-width])]
+  (let [entries (subscribe [:entries])]
     (when (not-empty @entries)
-      (let [grid-entries (build-offset-grid @entries @window-width)]
-         (into [:ul {:id "gridlist"}]
-               (mapv grid-entry grid-entries))))))
+      (into [:ul {:id "gridlist"}]
+            (mapv grid-entry @entries)))))
 
 (defn header
   []
