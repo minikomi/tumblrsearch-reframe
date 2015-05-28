@@ -124,6 +124,7 @@
 (register-handler 
   :new-tag-search
   (fn [db [_]]
+    (.blur (.getElementById js/document "input-box")) 
     (perform-tag-search (:current-input db) 0)
     (assoc db :search-term (:current-input db)
               :search-type :tag      
@@ -137,6 +138,7 @@
 (register-handler 
   :new-user-search
   (fn [db [_]]
+    (.blur (.getElementById js/document "input-box")) 
     (perform-user-search (:current-input db) 0)
     (assoc db :search-term (:current-input db)
               :search-type :user
@@ -370,11 +372,10 @@
                                  (.setToken h (str "/user/" @current-input)))
         ]
     (fn []
-      [:form {:on-submit (fn [ev]
-                           (.preventDefault ev)
-                           (maybe-new-tag-search))}
+      [:form
        ; text-input
        [:input {:type "text"
+                :id   "input-box"
                 :default-value @current-search
                 :value @current-input
                 :on-change #(dispatch-sync [:update-input (.. % -target -value)])
@@ -398,8 +399,6 @@
        ]
       )))
 
-
-
 (defn grid-entry 
   [{:keys [x y w h url post-url title]}]
   [:li {:style {:left     (str x "px")
@@ -410,7 +409,7 @@
           :alt title 
           :style {:padding "3px" :display "block"}
           :width (str (- w 6) "px") 
-          :height (str (- h 6) "px")}]]])
+           :height (str (- h 6) "px")}]]])
 
 (defn entry-list
   []
