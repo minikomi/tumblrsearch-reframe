@@ -28,6 +28,7 @@
 (def initial-state
   {:mode         :search
    :search-term  ""
+   :search-type  :tag
    :current-input ""
    :grid-type    :horizontal
    :entries      []
@@ -38,9 +39,9 @@
    })
 
 (def base-row-height 340)
-(def base-col-width 400)
+(def base-col-width 600)
 
-(defn perform-search [search-term before]
+(defn perform-tag-search [search-term before]
   ; goog.Jsonp.send [uri] [query params] [resp handler] [error handler]
   (.send (Jsonp. (Uri. "http://api.tumblr.com/v2/tagged")) 
          ; query parameters ---------
@@ -61,6 +62,27 @@
              (dispatch [:error (str "API Error: " (js->clj (.. v -meta -msg) :kewordize-keys true))])))
          ; req error handler --------
          #(dispatch 
+           [:error (str "Network Error")])))
+
+
+(defn perform-user-search [user-name page]
+  ; goog.Jsonp.send [uri] [query params] [resp handler] [error handler]
+  (.send (Jsonp. (Uri. (str "http://api.tumblr.com/v2/blog/" user-name ".tumblr.com/posts/photo"))) 
+         ; query parameters ---------
+         (clj->js 
+           {:offset  (* page 20) 
+            :api_key "pekKZHs4hKvshK1NRyXlawVhO203uYg0MMfGj5Tq8ts6M1Wq9Z"})
+         ; response handler ---------
+         (fn [v]
+           (case (.. v -meta -status)
+             200 
+             ; resp ok handler ------
+             (dispatch
+               [:search-result (js->clj (.. v -response -posts) :keywordize-keys true)])
+             ; resp error handler ---
+             (dispatch [:error (str "API Error: " (js->clj (.. v -meta -msg) :kewordize-keys true))])))
+         ; req error handler --------
+         #(dispatch 
             [:error (str "Network Error")])))
 
 ; routing
@@ -73,7 +95,11 @@
 
 (defroute search-tag "/tag/:tag" [tag]
   (dispatch [:update-input tag])
-  (dispatch [:new-search]))
+  (dispatch [:new-tag-search]))
+
+(defroute search-user "/user/:user-name" [user-name]
+  (dispatch [:update-input user-name])
+  (dispatch [:new-user-search]))
 
 ; handlers
 ; ------------------------------------------------------------------------------
@@ -96,10 +122,24 @@
     (assoc db :current-input current-input)))
 
 (register-handler 
-  :new-search
+  :new-tag-search
   (fn [db [_]]
-    (perform-search (:current-input db) 0)
+    (perform-tag-search (:current-input db) 0)
     (assoc db :search-term (:current-input db)
+              :search-type :tag      
+              :mode        :loading
+              :entries     []
+              :page        0
+              :before      0
+              )))
+
+
+(register-handler 
+  :new-user-search
+  (fn [db [_]]
+    (perform-user-search (:current-input db) 0)
+    (assoc db :search-term (:current-input db)
+              :search-type :user
               :mode        :loading
               :entries     []
               :page        0
@@ -110,7 +150,10 @@
 (register-handler 
   :continue-search
   (fn [db [_]]
-    (perform-search (:search-term db) (:before db))
+    (if (= :tag (:search-type db))
+      (perform-tag-search (:search-term db) (:before db))
+      (perform-user-search (:search-term db) (:page db))
+      )
     (assoc db :mode :loading)))
 
 
@@ -306,33 +349,53 @@
   :error-text
   (fn 
     [db _]
-    (reaction (:error-text @db)))
-  )
+    (reaction (:error-text @db))))
+
+(register-sub
+  :search-type
+  (fn 
+    [db _]
+    (reaction (:search-type @db))))
+
 ; views
 ; ------------------------------------------------------------------------------
 
 (defn input-form 
   []
-  (let [current-search   (subscribe [:search-term])
-        current-input    (subscribe [:current-input])
-        maybe-new-search #(when (and (not-empty @current-input)
-                                     (not= @current-input @current-search))
-                            (.setToken h (str "/tag/" @current-input)))]
+  (let [current-search (subscribe [:search-term])
+        current-input  (subscribe [:current-input])
+        maybe-new-tag-search #(when (not-empty @current-input)
+                                (.setToken h (str "/tag/" @current-input)))
+        maybe-new-user-search #(when (not-empty @current-input)
+                                 (.setToken h (str "/user/" @current-input)))
+        ]
     (fn []
       [:form {:on-submit (fn [ev]
                            (.preventDefault ev)
-                           (maybe-new-search))}
+                           (maybe-new-tag-search))}
        ; text-input
        [:input {:type "text"
                 :default-value @current-search
                 :value @current-input
-                :on-change #(dispatch-sync [:update-input (.. % -target -value)])}]
+                :on-change #(dispatch-sync [:update-input (.. % -target -value)])
+                :on-key-down #(when (= 13 (.. % -keyCode))
+                               (do
+                                 (.preventDefault %)
+                                 (if (.. % -shiftKey)
+                                   (maybe-new-user-search) 
+                                   (maybe-new-tag-search))))
+                }]
 
-       ; submit-button
+       ; submit-button - tag
        [:input {:type "button"
                 :value "Tag Search"
-                :disabled (empty? @current-input)
-                :on-click maybe-new-search}]]
+                :on-click maybe-new-tag-search}]
+       
+       ; submit-button - user
+       [:input {:type "button"
+                :value "User Search"
+                :on-click maybe-new-user-search}]
+       ]
       )))
 
 
@@ -356,17 +419,19 @@
       (into [:ul {:id "gridlist"}]
             (mapv grid-entry @entries)))))
 
+
 (defn header
   []
   (let [search-term (subscribe [:search-term])
         mode        (subscribe [:mode])
         entries     (subscribe [:entries])
+        search-type (subscribe [:search-type])  
         error-text  (subscribe [:error-text])  
         ]
     [:div {:id "header"}
      (if (empty? @search-term)
        [:h1 "Enter Search:"]
-       [:h1 "Current Search: " @search-term])
+       [:h1 (if (= :user @search-type) "User Search: " "Tag Search: ") @search-term])
      [input-form]
      (case @mode
        :loading  [:h2 "loading"]
@@ -390,11 +455,11 @@
     (.addEventListener
       js/window "scroll" #(dispatch [:scroll]))
     (.addEventListener js/window "keydown" 
-                       #(when (not= "INPUT" (.. % -target -nodeName))
-                          (case (.. % -keyCode)
-                            27 (dispatch [:initialize])
-                            71 (dispatch [:switch-grid])
-                            :noop)
+                       #(case (.. % -keyCode)
+                          27 (.setToken h (str "/"))
+                          71 (when (not= "INPUT" (.. % -target -nodeName))
+                               (dispatch [:switch-grid]))
+                          :noop
                           ))
     (dispatch-sync [:initialize])
     (secretary/set-config! :prefix "#")
