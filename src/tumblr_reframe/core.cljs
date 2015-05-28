@@ -29,6 +29,7 @@
   {:mode         :search
    :search-term  ""
    :current-input ""
+   :grid-type    :horizontal
    :entries      []
    :before       0
    :page         0
@@ -37,6 +38,7 @@
    })
 
 (def base-row-height 340)
+(def base-col-width 400)
 
 (defn perform-search [search-term before]
   ; goog.Jsonp.send [uri] [query params] [resp handler] [error handler]
@@ -104,11 +106,6 @@
               :before      0
               )))
 
-(register-handler :dump
-  (fn [db _]
-    (println db)
-    db
-    ))
 
 (register-handler 
   :continue-search
@@ -120,44 +117,74 @@
 (defn normalize-entry [entry]
   (let 
     [timestamp (:timestamp entry)
-     post-url (:post_url entry)
-     photos (-> entry :photos)
-     title (clojure.string/replace (:slug entry)  #"-"  " ")
+     post-url  (:post_url entry)
+     photos    (-> entry :photos)
+     title     (clojure.string/replace (:slug entry)  #"-"  " ")
      ]
     (for [photo photos]
       (let [{img-h   :height
              img-w   :width
-             img-url :url
-             }
-            (-> photo :alt_sizes second)
+             img-url :url} (-> photo :alt_sizes second)
             adj-w (Math/round (* img-w (/ base-row-height img-h)))]
         {:w adj-w
          :h base-row-height
-         :orig-w adj-w
-         :orig-h base-row-height
+         :orig-w img-w
+         :orig-h img-h
+         :adj-w adj-w
          :url img-url
          :post-url post-url
          :title title
-         :timestamp timestamp
-         }))))
+         :timestamp timestamp}
+        ))))
 
 (defn adjust-row [row adjust-ratio]
   (map (fn [img] 
          (-> img
-             (assoc :w (Math/ceil (* (:orig-w img) adjust-ratio))) 
-             (assoc :h (Math/ceil (* (:orig-h img) adjust-ratio)))
+             (assoc :w (Math/ceil (* (:adj-w img) adjust-ratio))) 
+             (assoc :h (Math/ceil (* base-row-height adjust-ratio)))
              (update-in [:x] #(Math/ceil (* % adjust-ratio)))
              )) row))
 
-(defn build-offset-grid [current-entries window-width]
+(defn build-v-grid [current-entrys window-width]
+  (let [col-n (inc (Math/floor (/ window-width base-col-width)))
+        col-w (/ window-width col-n)]
+    (loop [entrys   current-entrys
+           coll    []
+           idx     0
+           offsets (zipmap (range col-n) (repeat 0))]
+      (if (empty? entrys) coll
+        (let [entry  (first entrys)]
+          (if (or (nil? (:orig-w entry)) (nil? (:orig-h entry)))
+            ; nil size found - drop the image
+            (recur (rest entrys) coll idx offsets)
+            ; image ok - place image in grid
+            (let [offset-n    (mod idx col-n)
+                  offset      (apply min-key second offsets)
+                  offset-x    (* col-w (first offset))
+                  offset-y    (second offset)
+                  new-height  (int (* (:orig-h entry) (/ col-w (:orig-w entry))))
+                  new-offsets (update-in offsets [(first offset)] + new-height)
+                  new-entry (assoc entry 
+                                   :x offset-x
+                                   :y offset-y
+                                   :w col-w
+                                   :h new-height
+                                   )]
+              (recur
+                (rest entrys)
+                (conj coll new-entry)
+                (inc idx)
+                new-offsets))))))))
+
+(defn build-h-grid [current-entries window-width]
   (loop [entries  current-entries
          row      []
          row-w    0
          v-offset 0
          acc      []]
     (if (empty? entries) (into acc row)
-      (let [{img-w :orig-w img-h :orig-h :as entry} (first entries)]
-        (if (or (nil? img-w) (nil? img-h))
+      (let [{img-w :adj-w :as entry} (first entries)]
+        (if (nil? img-w)
           ; nil size found - drop the image
           (recur (rest entries) row row-w v-offset acc)
           ; image ok - place image in grid
@@ -179,11 +206,15 @@
   :search-result
   (fn [db [_ new-entries]]
     (if (not-empty new-entries)
-      (let [sorted-raw-entries (filter #(<= 2 (count (-> % :photos first :alt_sizes)))
-                                       (sort-by :timestamp #(compare %2 %1) new-entries))
-            sorted-entries (into (:entries db) (flatten (map normalize-entry sorted-raw-entries)))
-            new-entries (build-offset-grid sorted-entries (:window-width db))
-            ]
+      (let [sorted-new-entries (->> new-entries
+                                    (sort-by :timestamp #(compare %2 %1))
+                                    (filter #(<= 2 (count (-> % :photos first :alt_sizes))))
+                                    (map normalize-entry)
+                                    (flatten))
+            sorted-entries (into (:entries db) sorted-new-entries)
+            new-entries (case (:grid-type db)
+                          :vertical (build-v-grid sorted-entries (:window-width db))
+                          (build-h-grid sorted-entries (:window-width db)))]
        (-> db
           (assoc :entries new-entries)
           (assoc :before (-> sorted-entries last :timestamp))
@@ -196,7 +227,9 @@
   :resize
   (fn [db [_]]
     (let [new-width (.. js/window -innerWidth)
-          new-entries (build-offset-grid (:entries db) new-width)]
+          new-entries (case (:grid-type db)
+                        :vertical (build-v-grid (:entries db) new-width)
+                        (build-h-grid (:entries db) new-width))]
       (println (count (:entries db)) (count new-entries))
       (assoc db :window-width new-width
                 :entries new-entries
@@ -212,6 +245,29 @@
                       (.. js/window -innerHeight))))
       (dispatch [:continue-search]))
     db))
+
+
+(register-handler 
+  :switch-grid
+  (fn [db [_]]
+    (let [current-grid-type (:grid-type db)
+          new-grid-type (if (= :horizontal current-grid-type)
+                          :vertical
+                          :horizontal)
+          new-entries (case new-grid-type
+                        :vertical (build-v-grid (:entries db) (:window-width db))
+                        (build-h-grid (:entries db) (:window-width db))) 
+          ]
+      (assoc db :entries new-entries
+             :grid-type new-grid-type
+             ))))
+
+; debug
+(register-handler :dump
+  (fn [db _]
+    (println db)
+    db
+    ))
 
 ; subscriptions
 ; ------------------------------------------------------------------------------
@@ -289,8 +345,9 @@
    [:a {:href post-url :target "_blank"}
     [:img {:src url 
           :alt title 
-          :width (str w "px") 
-          :height (str h "px")}]]])
+          :style {:padding "3px" :display "block"}
+          :width (str (- w 6) "px") 
+          :height (str (- h 6) "px")}]]])
 
 (defn entry-list
   []
@@ -332,6 +389,13 @@
       js/window "resize" #(dispatch [:resize]))
     (.addEventListener
       js/window "scroll" #(dispatch [:scroll]))
+    (.addEventListener js/window "keydown" 
+                       #(when (not= "INPUT" (.. % -target -nodeName))
+                          (case (.. % -keyCode)
+                            27 (dispatch [:initialize])
+                            71 (dispatch [:switch-grid])
+                            :noop)
+                          ))
     (dispatch-sync [:initialize])
     (secretary/set-config! :prefix "#")
     (goog.events/listen h EventType/NAVIGATE #(secretary/dispatch! (.-token %)))
