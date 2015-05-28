@@ -59,8 +59,7 @@
              (dispatch [:error (str "API Error: " (js->clj (.. v -meta -msg) :kewordize-keys true))])))
          ; req error handler --------
          #(dispatch 
-            [:error (str "Network Error")])
-         ))
+            [:error (str "Network Error")])))
 
 ; routing
 ; ------------------------------------------------------------------------------
@@ -117,24 +116,30 @@
     (perform-search (:search-term db) (:before db))
     (assoc db :mode :loading)))
 
+
 (defn normalize-entry [entry]
   (let 
     [timestamp (:timestamp entry)
-     {img-h   :height
-      img-w   :width
-      img-url :url
-      } (-> entry :photos first :alt_sizes second)
-      adj-w (Math/round (* img-w (/ base-row-height img-h)))
-      title (clojure.string/replace (:slug entry)  #"-"  " ")
-      ]
-    {:w adj-w
-     :h base-row-height
-     :orig-w adj-w
-     :orig-h base-row-height
-     :url img-url
-     :title title
-     :timestamp timestamp
-     }))
+     post-url (:post_url entry)
+     photos (-> entry :photos)
+     title (clojure.string/replace (:slug entry)  #"-"  " ")
+     ]
+    (for [photo photos]
+      (let [{img-h   :height
+             img-w   :width
+             img-url :url
+             }
+            (-> photo :alt_sizes second)
+            adj-w (Math/round (* img-w (/ base-row-height img-h)))]
+        {:w adj-w
+         :h base-row-height
+         :orig-w adj-w
+         :orig-h base-row-height
+         :url img-url
+         :post-url post-url
+         :title title
+         :timestamp timestamp
+         }))))
 
 (defn adjust-row [row adjust-ratio]
   (map (fn [img] 
@@ -176,7 +181,7 @@
     (if (not-empty new-entries)
       (let [sorted-raw-entries (filter #(<= 2 (count (-> % :photos first :alt_sizes)))
                                        (sort-by :timestamp #(compare %2 %1) new-entries))
-            sorted-entries (into (:entries db) (map normalize-entry sorted-raw-entries))
+            sorted-entries (into (:entries db) (flatten (map normalize-entry sorted-raw-entries)))
             new-entries (build-offset-grid sorted-entries (:window-width db))
             ]
        (-> db
@@ -241,6 +246,12 @@
     [db _]
     (reaction (:window-width @db))))
 
+(register-sub
+  :error-text
+  (fn 
+    [db _]
+    (reaction (:error-text @db)))
+  )
 ; views
 ; ------------------------------------------------------------------------------
 
@@ -263,7 +274,7 @@
 
        ; submit-button
        [:input {:type "button"
-                :value "new search"
+                :value "Tag Search"
                 :disabled (empty? @current-input)
                 :on-click maybe-new-search}]]
       )))
@@ -271,14 +282,15 @@
 
 
 (defn grid-entry 
-  [{:keys [x y w h url title]}]
+  [{:keys [x y w h url post-url title]}]
   [:li {:style {:left     (str x "px")
                 :top      (str y "px") 
                 :width    (str w "px")}}
-   [:img {:src url 
+   [:a {:href post-url :target "_blank"}
+    [:img {:src url 
           :alt title 
           :width (str w "px") 
-          :height (str h "px")}]])
+          :height (str h "px")}]]])
 
 (defn entry-list
   []
@@ -290,15 +302,21 @@
 (defn header
   []
   (let [search-term (subscribe [:search-term])
-        mode (subscribe [:mode])]
+        mode        (subscribe [:mode])
+        entries     (subscribe [:entries])
+        error-text  (subscribe [:error-text])  
+        ]
     [:div {:id "header"}
      (if (empty? @search-term)
        [:h1 "Enter Search:"]
        [:h1 "Current Search: " @search-term])
      [input-form]
      (case @mode
-       :loading [:h2 "loading"]
-       :finished [:h2 "Found All Entries."]
+       :loading  [:h2 "loading"]
+       :finished [:h2 (if (empty? @entries) 
+                        "No entries found." 
+                        "Found All Entries.")]
+       :error    [:h2 (:error-text error-text)]
        "")]))
 
 (defn application 
