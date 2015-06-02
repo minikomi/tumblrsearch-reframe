@@ -94,11 +94,11 @@
   (dispatch [:initialize]))
 
 (defroute search-tag "/tag/:tag" [tag]
-  (dispatch [:update-input tag])
+  (dispatch [:update-input (js/decodeURIComponent tag)])
   (dispatch [:new-tag-search]))
 
 (defroute search-user "/user/:user-name" [user-name]
-  (dispatch [:update-input user-name])
+  (dispatch [:update-input (js/decodeURIComponent user-name)])
   (dispatch [:new-user-search]))
 
 ; handlers
@@ -161,16 +161,16 @@
 
 (defn normalize-entry [entry]
   (let 
-    [timestamp (:timestamp entry)
-     post-url  (:post_url entry)
-     photos    (-> entry :photos)
-     title     (clojure.string/replace (:slug entry)  #"-"  " ")
-     ]
+      [timestamp (:timestamp entry)
+       post-url  (:post_url entry)
+       photos    (-> entry :photos)
+       title     (clojure.string/replace (:slug entry)  #"-"  " ")
+       ]
     (for [photo photos]
       (let [{img-h   :height
              img-w   :width
              img-url :url} (-> photo :alt_sizes second)
-            adj-w (Math/round (* img-w (/ base-row-height img-h)))]
+             adj-w (Math/round (* img-w (/ base-row-height img-h)))]
         {:w adj-w
          :h base-row-height
          :orig-w img-w
@@ -367,9 +367,9 @@
   (let [current-search (subscribe [:search-term])
         current-input  (subscribe [:current-input])
         maybe-new-tag-search #(when (not-empty @current-input)
-                                (.setToken h (str "/tag/" @current-input)))
+                                (.setToken h (str "/tag/" (js/encodeURIComponent @current-input))))
         maybe-new-user-search #(when (not-empty @current-input)
-                                 (.setToken h (str "/user/" @current-input)))
+                                 (.setToken h (str "/user/" (js/encodeURIComponent @current-input))))
         ]
     (fn []
       [:form
