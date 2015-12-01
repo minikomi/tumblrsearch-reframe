@@ -43,46 +43,46 @@
 
 (defn perform-tag-search [search-term before]
   ; goog.Jsonp.send [uri] [query params] [resp handler] [error handler]
-  (.send (Jsonp. (Uri. "http://api.tumblr.com/v2/tagged")) 
+  (.send (Jsonp. (Uri. "http://api.tumblr.com/v2/tagged"))
          ; query parameters ---------
-         (clj->js 
+         (clj->js
            {:tag     search-term
             :before  before
             :api_key "pekKZHs4hKvshK1NRyXlawVhO203uYg0MMfGj5Tq8ts6M1Wq9Z"})
          ; response handler ---------
          (fn [v]
            (case (.. v -meta -status)
-             200 
+             200
              ; resp ok handler ------
              (dispatch
-               [:search-result 
+               [:search-result
                 (filter (fn [item] (= (:type item) "photo"))
                         (js->clj (.. v -response) :keywordize-keys true))])
              ; resp error handler ---
              (dispatch [:error (str "API Error: " (js->clj (.. v -meta -msg) :kewordize-keys true))])))
          ; req error handler --------
-         #(dispatch 
+         #(dispatch
            [:error (str "Network Error")])))
 
 
 (defn perform-user-search [user-name page]
   ; goog.Jsonp.send [uri] [query params] [resp handler] [error handler]
-  (.send (Jsonp. (Uri. (str "http://api.tumblr.com/v2/blog/" user-name ".tumblr.com/posts/photo"))) 
+  (.send (Jsonp. (Uri. (str "http://api.tumblr.com/v2/blog/" user-name ".tumblr.com/posts/photo")))
          ; query parameters ---------
-         (clj->js 
-           {:offset  (* page 20) 
+         (clj->js
+           {:offset  (* page 20)
             :api_key "pekKZHs4hKvshK1NRyXlawVhO203uYg0MMfGj5Tq8ts6M1Wq9Z"})
          ; response handler ---------
          (fn [v]
            (case (.. v -meta -status)
-             200 
+             200
              ; resp ok handler ------
              (dispatch
                [:search-result (js->clj (.. v -response -posts) :keywordize-keys true)])
              ; resp error handler ---
              (dispatch [:error (str "API Error: " (js->clj (.. v -meta -msg) :kewordize-keys true))])))
          ; req error handler --------
-         #(dispatch 
+         #(dispatch
             [:error (str "Network Error")])))
 
 ; routing
@@ -104,30 +104,30 @@
 ; handlers
 ; ------------------------------------------------------------------------------
 
-(register-handler 
+(register-handler
   :initialize
   (fn [db _]
     (merge db initial-state)))
 
-(register-handler 
+(register-handler
   :error
   (fn [db [_ error-string]]
     (assoc db :mode        :error
               :error-string error-string
               )))
 
-(register-handler 
+(register-handler
   :update-input
   (fn [db [_ current-input]]
     (assoc db :current-input current-input)))
 
-(register-handler 
+(register-handler
   :new-tag-search
   (fn [db [_]]
-    (.blur (.getElementById js/document "input-box")) 
+    (.blur (.getElementById js/document "input-box"))
     (perform-tag-search (:current-input db) 0)
     (assoc db :search-term (:current-input db)
-              :search-type :tag      
+              :search-type :tag
               :mode        :loading
               :entries     []
               :page        0
@@ -135,10 +135,10 @@
               )))
 
 
-(register-handler 
+(register-handler
   :new-user-search
   (fn [db [_]]
-    (.blur (.getElementById js/document "input-box")) 
+    (.blur (.getElementById js/document "input-box"))
     (perform-user-search (:current-input db) 0)
     (assoc db :search-term (:current-input db)
               :search-type :user
@@ -149,7 +149,7 @@
               )))
 
 
-(register-handler 
+(register-handler
   :continue-search
   (fn [db [_]]
     (if (= :tag (:search-type db))
@@ -160,7 +160,7 @@
 
 
 (defn normalize-entry [entry]
-  (let 
+  (let
       [timestamp (:timestamp entry)
        post-url  (:post_url entry)
        photos    (-> entry :photos)
@@ -183,9 +183,9 @@
         ))))
 
 (defn adjust-row [row adjust-ratio]
-  (map (fn [img] 
+  (map (fn [img]
          (-> img
-             (assoc :w (Math/ceil (* (:adj-w img) adjust-ratio))) 
+             (assoc :w (Math/ceil (* (:adj-w img) adjust-ratio)))
              (assoc :h (Math/ceil (* base-row-height adjust-ratio)))
              (update-in [:x] #(Math/ceil (* % adjust-ratio)))
              )) row))
@@ -209,7 +209,7 @@
                   offset-y    (second offset)
                   new-height  (int (* (:orig-h entry) (/ col-w (:orig-w entry))))
                   new-offsets (update-in offsets [(first offset)] + new-height)
-                  new-entry (assoc entry 
+                  new-entry (assoc entry
                                    :x offset-x
                                    :y offset-y
                                    :w col-w
@@ -234,20 +234,20 @@
           (recur (rest entries) row row-w v-offset acc)
           ; image ok - place image in grid
           (let [new-entry (assoc entry :x row-w :y v-offset)
-                new-row  (conj row new-entry) 
+                new-row  (conj row new-entry)
                 new-row-w (+ row-w img-w)]
             (if (>= new-row-w window-width)
               ; went over the width of the window
               ; - new row
               ; - adjust size of images to fit justified
-              (let [adjust-ratio (/ window-width new-row-w) 
+              (let [adjust-ratio (/ window-width new-row-w)
                     new-v-offset (Math/round (+ v-offset (* adjust-ratio base-row-height)))
                     adjusted-row (adjust-row new-row adjust-ratio)
                     new-acc      (into acc adjusted-row)]
                 (recur (rest entries) [] 0 new-v-offset new-acc))
               (recur (rest entries) new-row new-row-w v-offset acc))))))))
 
-(register-handler 
+(register-handler
   :search-result
   (fn [db [_ new-entries]]
     (if (not-empty new-entries)
@@ -268,7 +268,7 @@
           ))
       (-> db (assoc :mode :finished)))))
 
-(register-handler 
+(register-handler
   :resize
   (fn [db [_]]
     (let [new-width (.. js/window -innerWidth)
@@ -280,19 +280,19 @@
                 :entries new-entries
              ))))
 
-(register-handler 
+(register-handler
   :scroll
   (fn [db [_]]
     (when
       (and (= :loaded (:mode db))
-           (> 100 (-  (.. js/document -documentElement -scrollHeight) 
-                      (.. js/window -scrollY) 
+           (> 100 (-  (.. js/document -documentElement -scrollHeight)
+                      (.. js/window -scrollY)
                       (.. js/window -innerHeight))))
       (dispatch [:continue-search]))
     db))
 
 
-(register-handler 
+(register-handler
   :switch-grid
   (fn [db [_]]
     (let [current-grid-type (:grid-type db)
@@ -301,7 +301,7 @@
                           :horizontal)
           new-entries (case new-grid-type
                         :vertical (build-v-grid (:entries db) (:window-width db))
-                        (build-h-grid (:entries db) (:window-width db))) 
+                        (build-h-grid (:entries db) (:window-width db)))
           ]
       (assoc db :entries new-entries
              :grid-type new-grid-type
@@ -318,51 +318,51 @@
 ; ------------------------------------------------------------------------------
 
 (register-sub
-  :mode 
-  (fn 
+  :mode
+  (fn
     [db _]
     (reaction (:mode @db))))
 
 (register-sub
   :search-term
-  (fn 
+  (fn
     [db _]
     (reaction (:search-term @db))))
 
 (register-sub
   :current-input
-  (fn 
+  (fn
     [db _]
     (reaction (:current-input @db))))
 
 (register-sub
   :entries
-  (fn 
+  (fn
     [db _]
     (reaction (:entries @db))))
 
 (register-sub
   :window-width
-  (fn 
+  (fn
     [db _]
     (reaction (:window-width @db))))
 
 (register-sub
   :error-text
-  (fn 
+  (fn
     [db _]
     (reaction (:error-text @db))))
 
 (register-sub
   :search-type
-  (fn 
+  (fn
     [db _]
     (reaction (:search-type @db))))
 
 ; views
 ; ------------------------------------------------------------------------------
 
-(defn input-form 
+(defn input-form
   []
   (let [current-search (subscribe [:search-term])
         current-input  (subscribe [:current-input])
@@ -383,7 +383,7 @@
                                (do
                                  (.preventDefault %)
                                  (if (.. % -shiftKey)
-                                   (maybe-new-user-search) 
+                                   (maybe-new-user-search)
                                    (maybe-new-tag-search))))
                 }]
 
@@ -391,7 +391,7 @@
        [:input {:type "button"
                 :value "Tag Search"
                 :on-click maybe-new-tag-search}]
-       
+
        ; submit-button - user
        [:input {:type "button"
                 :value "User Search"
@@ -399,16 +399,16 @@
        ]
       )))
 
-(defn grid-entry 
+(defn grid-entry
   [{:keys [x y w h url post-url title]}]
   [:li {:style {:left     (str x "px")
-                :top      (str y "px") 
+                :top      (str y "px")
                 :width    (str w "px")}}
    [:a {:href post-url :target "_blank"}
-    [:img {:src url 
-          :alt title 
+    [:img {:src url
+          :alt title
           :style {:padding "3px" :display "block"}
-          :width (str (- w 6) "px") 
+          :width (str (- w 6) "px")
            :height (str (- h 6) "px")}]]])
 
 (defn entry-list
@@ -424,8 +424,8 @@
   (let [search-term (subscribe [:search-term])
         mode        (subscribe [:mode])
         entries     (subscribe [:entries])
-        search-type (subscribe [:search-type])  
-        error-text  (subscribe [:error-text])  
+        search-type (subscribe [:search-type])
+        error-text  (subscribe [:error-text])
         ]
     [:div {:id "header"}
      (if (empty? @search-term)
@@ -434,13 +434,13 @@
      [input-form]
      (case @mode
        :loading  [:h2 "loading"]
-       :finished [:h2 (if (empty? @entries) 
-                        "No entries found." 
+       :finished [:h2 (if (empty? @entries)
+                        "No entries found."
                         "Found All Entries.")]
        :error    [:h2 (:error-text error-text)]
        "")]))
 
-(defn application 
+(defn application
   []
   (fn [] [:div [header] [entry-list]]))
 
@@ -453,7 +453,7 @@
       js/window "resize" #(dispatch [:resize]))
     (.addEventListener
       js/window "scroll" #(dispatch [:scroll]))
-    (.addEventListener js/window "keydown" 
+    (.addEventListener js/window "keydown"
                        #(case (.. % -keyCode)
                           27 (.setToken h (str "/"))
                           71 (when (not= "INPUT" (.. % -target -nodeName))
