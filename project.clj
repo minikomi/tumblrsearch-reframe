@@ -6,10 +6,10 @@
 
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [org.clojure/clojurescript "0.0-3211"]
-                 [org.clojure/core.async "0.1.346.0-17112a-alpha"]
+                 [org.clojure/core.async "0.2.374"]
                  ; app specific
-                 [re-frame "0.4.0"]
-                 [reagent "0.5.0"]
+                 [re-frame "0.5.0"]
+                 [reagent "0.5.1"]
                  [secretary "1.2.3"]
                  ]
 
@@ -40,5 +40,4 @@
 
   :figwheel {
              :css-dirs ["resources/public/css"]
-             :nrepl-port 7888
-             })
+             :nrepl-port 7888 })
