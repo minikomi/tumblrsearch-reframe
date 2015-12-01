@@ -72,13 +72,17 @@
          (clj->js
            {:offset  (* page 20)
             :api_key "pekKZHs4hKvshK1NRyXlawVhO203uYg0MMfGj5Tq8ts6M1Wq9Z"})
+
+
          ; response handler ---------
          (fn [v]
            (case (.. v -meta -status)
              200
              ; resp ok handler ------
-             (dispatch
-               [:search-result (js->clj (.. v -response -posts) :keywordize-keys true)])
+
+             (let [posts (:posts (js->clj (.. v -response) :keywordize-keys true))]
+               (dispatch
+                [:search-result posts]))
              ; resp error handler ---
              (dispatch [:error (str "API Error: " (js->clj (.. v -meta -msg) :kewordize-keys true))])))
          ; req error handler --------
@@ -275,7 +279,6 @@
           new-entries (case (:grid-type db)
                         :vertical (build-v-grid (:entries db) new-width)
                         (build-h-grid (:entries db) new-width))]
-      (println (count (:entries db)) (count new-entries))
       (assoc db :window-width new-width
                 :entries new-entries
              ))))
