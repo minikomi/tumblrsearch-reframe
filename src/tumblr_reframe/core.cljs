@@ -38,8 +38,8 @@
    :error-string ""
    })
 
-(def base-row-height 340)
-(def base-col-width 600)
+(def base-row-height 500)
+(def base-col-width 800)
 
 (defn perform-tag-search [search-term before]
   ; goog.Jsonp.send [uri] [query params] [resp handler] [error handler]
