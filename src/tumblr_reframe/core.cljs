@@ -216,14 +216,14 @@
          v-offset 0
          acc      []]
     (if (empty? entries) (into acc row)
-        (let [{img-w :adj-w :as entry} (first entries)]
-          (if (nil? img-w)
+        (let [{:keys [adj-w] :as entry} (first entries)]
+          (if (nil? adj-w)
             ;; nil size found - drop the image
             (recur (rest entries) row row-w v-offset acc)
             ;; image ok - place image in grid
             (let [new-entry (assoc entry :x row-w :y v-offset)
                   new-row  (conj row new-entry)
-                  new-row-w (+ row-w img-w)]
+                  new-row-w (+ row-w adj-w)]
               (if (>= new-row-w window-width)
                 ;; went over the width of the window
                 ;; - new row
