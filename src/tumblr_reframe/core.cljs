@@ -118,7 +118,7 @@
 (register-handler
  :new-tag-search
  (fn [db [_]]
-   (.blur (.getElementById js/document "input-box"))
+   (if-let [el (.getElementById js/document "input-box")] (.blur el))
    (perform-tag-search (:current-input db) 0)
    (assoc db :search-term (:current-input db)
           :search-type :tag
@@ -130,7 +130,7 @@
 (register-handler
  :new-user-search
  (fn [db [_]]
-   (.blur (.getElementById js/document "input-box"))
+   (if-let [el (.getElementById js/document "input-box")] (.blur el))
    (perform-user-search (:current-input db) 0)
    (assoc db :search-term (:current-input db)
           :search-type :user
@@ -144,17 +144,15 @@
  (fn [db [_]]
    (if (= :tag (:search-type db))
      (perform-tag-search (:search-term db) (:before db))
-     (perform-user-search (:search-term db) (:page db))
-     )
+     (perform-user-search (:search-term db) (:page db)))
    (assoc db :mode :loading)))
 
 (defn normalize-entry [entry]
   (let
-      [timestamp (:timestamp entry)
-       post-url  (:post_url entry)
-       photos    (-> entry :photos)
-       title     (clojure.string/replace (:slug entry)  #"-"  " ")
-       ]
+   [timestamp (:timestamp entry)
+    post-url  (:post_url entry)
+    photos    (-> entry :photos)
+    title     (clojure.string/replace (:slug entry)  #"-"  " ")]
     (for [photo photos]
       (let [{img-h   :height
              img-w   :width
@@ -175,8 +173,7 @@
          (-> img
              (assoc :w (Math/ceil (* (:adj-w img) adjust-ratio)))
              (assoc :h (Math/ceil (* base-row-height adjust-ratio)))
-             (update-in [:x] #(Math/ceil (* % adjust-ratio)))
-             ))
+             (update-in [:x] #(Math/ceil (* % adjust-ratio)))))
        row))
 
 (defn build-v-grid [current-entrys window-width]
@@ -252,8 +249,7 @@
            (assoc :entries new-entries)
            (assoc :before (-> sorted-entries last :timestamp))
            (update-in [:page] inc)
-           (assoc :mode :loaded)
-           ))
+           (assoc :mode :loaded)))
      (-> db (assoc :mode :finished)))))
 
 (register-handler
@@ -264,17 +260,16 @@
                        :vertical (build-v-grid (:entries db) new-width)
                        (build-h-grid (:entries db) new-width))]
      (assoc db :window-width new-width
-            :entries new-entries
-            ))))
+            :entries new-entries))))
 
 (register-handler
  :scroll
  (fn [db [_]]
    (when
-       (and (= :loaded (:mode db))
-            (> 100 (-  (.. js/document -documentElement -scrollHeight)
-                       (.. js/window -scrollY)
-                       (.. js/window -innerHeight))))
+    (and (= :loaded (:mode db))
+         (> 100 (-  (.. js/document -documentElement -scrollHeight)
+                    (.. js/window -scrollY)
+                    (.. js/window -innerHeight))))
      (dispatch [:continue-search]))
    db))
 
@@ -287,8 +282,7 @@
                          :horizontal)
          new-entries (case new-grid-type
                        :vertical (build-v-grid (:entries db) (:window-width db))
-                       (build-h-grid (:entries db) (:window-width db)))
-         ]
+                       (build-h-grid (:entries db) (:window-width db)))]
      (assoc db :entries new-entries
             :grid-type new-grid-type))))
 
@@ -369,8 +363,7 @@
                                   (.preventDefault %)
                                   (if (.. % -shiftKey)
                                     (maybe-new-user-search)
-                                    (maybe-new-tag-search))))
-                }]
+                                    (maybe-new-tag-search))))}]
        ;; submit-button - tag
        [:input {:type "button"
                 :value "Tag Search"
@@ -378,8 +371,7 @@
        ;; submit-button - user
        [:input {:type "button"
                 :value "User Search"
-                :on-click maybe-new-user-search}]
-       ])))
+                :on-click maybe-new-user-search}]])))
 
 (defn grid-entry [{:keys [x y w h url post-url title]}]
   [:li {:style {:left     (str x "px")
@@ -403,8 +395,7 @@
         mode        (subscribe [:mode])
         entries     (subscribe [:entries])
         search-type (subscribe [:search-type])
-        error-text  (subscribe [:error-text])
-        ]
+        error-text  (subscribe [:error-text])]
     [:div {:id "header"}
      (if (empty? @search-term)
        [:h1 "Enter Search:"]
@@ -435,13 +426,11 @@
                           27 (.setToken h (str "/"))
                           71 (when (not= "INPUT" (.. % -target -nodeName))
                                (dispatch [:switch-grid]))
-                          :noop
-                          ))
+                          :noop))
     (dispatch-sync [:initialize])
     (secretary/set-config! :prefix "#")
     (goog.events/listen h EventType/NAVIGATE #(secretary/dispatch! (.-token %)))
-    (doto h (.setEnabled true))
-    ))
+    (doto h (.setEnabled true))))
 
 (defn ^:export run []
   (reagent/render [application]
